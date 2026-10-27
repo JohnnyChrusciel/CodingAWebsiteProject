@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balloon Pop</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: linear-gradient(#8ed1fc, #e8f6ff);
+    font-family: system-ui, sans-serif;
+    /* Dart cursor: tip of the dart is the hotspot (2,2) */
+    cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><line x1='2' y1='2' x2='24' y2='22' stroke='%23444' stroke-width='2.5' stroke-linecap='round'/><polygon points='2,2 8,4 4,8' fill='%23999'/><polygon points='19,17 21,8 28,15' fill='%23e63946'/><polygon points='17,19 8,21 15,28' fill='%23e63946'/></svg>") 2 2, crosshair;
+  }
+  #hud {
+    position: fixed; top: 12px; left: 16px; z-index: 10;
+    color: #134; font-weight: 600; pointer-events: none;
+  }
+
+  .balloon {
+    position: absolute; left: 0; top: 0;
+    width: 70px; height: 88px;
+    border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
+    background: radial-gradient(circle at 32% 28%, rgba(255,255,255,.75) 0 8%, transparent 9%), var(--c);
+    box-shadow: inset -8px -10px 16px rgba(0,0,0,.18);
+    cursor: inherit; will-change: transform;
+  }
+  .balloon::before { /* knot */
+    content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -6px;
+    border: 6px solid transparent; border-bottom-color: var(--c);
+    border-top: 0; width: 0; height: 0; filter: brightness(.85);
+  }
+  .balloon::after { /* string */
+    content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 55px;
+    background: rgba(40,40,40,.55); transform-origin: top;
+  }
+  .balloon.pop { pointer-events: none; animation: pop .25s ease-out forwards; }
+  @keyframes pop {
+    0%   { opacity: 1; filter: brightness(1); }
+    100% { opacity: 0; filter: brightness(1.6); scale: 1.8; }
+  }
+  .bit { /* confetti bits from popped balloon */
+    position: absolute; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--c); pointer-events: none;
+    animation: fly .5s ease-out forwards;
+  }
+  @keyframes fly {
+    to { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="hud"></div>
+
+<script>
+const COUNT = 12, RESPAWN_MS = 30000, REPEL_RADIUS = 200;
+const COLORS = ['#ff4d6d','#ffb703','#06d6a0','#4cc9f0','#b388eb','#ff7b00','#f72585'];
+let balloons = [], mouse = { x: -999, y: -999 }, nextRespawn = Date.now() + RESPAWN_MS;
+const hud = document.getElementById('hud');
+
+addEventListener('pointermove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+function spawn() {
+  balloons.forEach(b => b.el.remove());
+  balloons = [];
+  for (let i = 0; i < COUNT; i++) {
+    const el = document.createElement('div');
+    el.className = 'balloon';
+    const c = COLORS[i % COLORS.length];
+    el.style.setProperty('--c', c);
+    const b = {
+      el, c,
+      x: Math.random() * (innerWidth - 70),
+      y: Math.random() * (innerHeight - 140),
+      vx: (Math.random() - .5) * 2,
+      vy: (Math.random() - .5) * 2
+    };
+    el.addEventListener('pointerdown', () => pop(b));
+    document.body.appendChild(el);
+    balloons.push(b);
+  }
+  nextRespawn = Date.now() + RESPAWN_MS;
+}
+
+function pop(b) {
+  if (b.popped) return;
+  b.popped = true;
+  const r = b.el.getBoundingClientRect();
+  for (let i = 0; i < 10; i++) {
+    const bit = document.createElement('div');
+    const a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 50;
+    bit.className = 'bit';
+    bit.style.setProperty('--c', b.c);
+    bit.style.setProperty('--dx', Math.cos(a) * d + 'px');
+    bit.style.setProperty('--dy', Math.sin(a) * d + 'px');
+    bit.style.left = r.left + r.width / 2 + 'px';
+    bit.style.top = r.top + r.height / 2 + 'px';
+    document.body.appendChild(bit);
+    setTimeout(() => bit.remove(), 500);
+  }
+  b.el.classList.add('pop');
+  setTimeout(() => b.el.remove(), 250);
+  balloons = balloons.filter(x => x !== b);
+}
+
+function tick() {
+  for (const b of balloons) {
+    const cx = b.x + 35, cy = b.y + 44;
+    const dx = cx - mouse.x, dy = cy - mouse.y, dist = Math.hypot(dx, dy) || 1;
+    if (dist < REPEL_RADIUS) {
+      const force = (1 - dist / REPEL_RADIUS) * 1.2;
+      b.vx += (dx / dist) * force;
+      b.vy += (dy / dist) * force;
+    }
+    // gentle wandering so they never sit still
+    b.vx += (Math.random() - .5) * .08;
+    b.vy += (Math.random() - .5) * .08 - .01;
+    b.vx *= .96; b.vy *= .96;
+    const sp = Math.hypot(b.vx, b.vy), max = 7;
+    if (sp > max) { b.vx = b.vx / sp * max; b.vy = b.vy / sp * max; }
+    b.x += b.vx; b.y += b.vy;
+    const maxX = innerWidth - 70, maxY = innerHeight - 145;
+    if (b.x < 0) { b.x = 0; b.vx *= -.6; } else if (b.x > maxX) { b.x = maxX; b.vx *= -.6; }
+    if (b.y < 0) { b.y = 0; b.vy *= -.6; } else if (b.y > maxY) { b.y = maxY; b.vy *= -.6; }
+    b.el.style.transform = `translate(${b.x}px, ${b.y}px) rotate(${b.vx * 2}deg)`;
+  }
+  const left = Math.max(0, Math.ceil((nextRespawn - Date.now()) / 1000));
+  hud.textContent = `Balloons: ${balloons.length}  |  Respawn in ${left}s`;
+  requestAnimationFrame(tick);
+}
+
+setInterval(spawn, RESPAWN_MS);
+spawn();
+tick();
+</script>
+</body>
+</html>
